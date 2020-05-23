@@ -1,18 +1,15 @@
-<!--  from https://stackoverflow.com/a/27852403 -->
+<!-- adapted from https://stackoverflow.com/a/27852403 -->
 
 <html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
 <title>capture microphone audio into buffer</title>
 
 <script type="text/javascript">
 
-
   var webaudio_tooling_obj = function () {
 
     var audioContext = new AudioContext();
 
     console.log("audio is starting up ...");
-
-    var BUFF_SIZE = 16384;
 
     var audioInput = null,
         microphone_stream = null,
@@ -54,48 +51,18 @@
         }
     }
 
-    function process_microphone_buffer(event) { // invoked by event loop
-
-        var i, N, inp, microphone_output_buffer;
-
-        microphone_output_buffer = event.inputBuffer.getChannelData(0); // just mono - 1 channel for now
-
-        // microphone_output_buffer  <-- this buffer contains current gulp of data size BUFF_SIZE
-
-        show_some_data(microphone_output_buffer, 5, "from getChannelData");
-    }
-
     function start_microphone(stream){
 
-      gain_node = audioContext.createGain();
-      gain_node.connect( audioContext.destination );
-
       microphone_stream = audioContext.createMediaStreamSource(stream);
-      microphone_stream.connect(gain_node); 
-
-      script_processor_node = audioContext.createScriptProcessor(BUFF_SIZE, 1, 1);
-      script_processor_node.onaudioprocess = process_microphone_buffer;
-
-      microphone_stream.connect(script_processor_node);
-
-      // --- enable volume control for output speakers
-
-      document.getElementById('volume').addEventListener('change', function() {
-
-          var curr_volume = this.value;
-          gain_node.gain.value = curr_volume;
-
-          console.log("curr_volume ", curr_volume);
-      });
 
       // --- setup FFT
 
-      script_processor_fft_node = audioContext.createScriptProcessor(2048, 1, 1);
-      script_processor_fft_node.connect(gain_node);
+      buff_size = 16384
+      script_processor_fft_node = audioContext.createScriptProcessor(buff_size, 1, 1);
 
       analyserNode = audioContext.createAnalyser();
-      analyserNode.smoothingTimeConstant = 0;
-      analyserNode.fftSize = 2048;
+      analyserNode.smoothingTimeConstant = 0.5;
+      analyserNode.fftSize = 32;
 
       microphone_stream.connect(analyserNode);
 
@@ -111,21 +78,20 @@
         if (microphone_stream.playbackState == microphone_stream.PLAYING_STATE) {
 
             show_some_data(array, 5, "from fft");
+            console.log(array);
         }
+
+        r = ("00" + array[0]).substr(-2,2);
+        g = ("00" + array[1]).substr(-2,2);
+        b = ("00" + array[2]).substr(-2,2);
+
+        document.body.style.background = "#" + r + g + b;
       };
+
     }
 
   }(); //  webaudio_tooling_obj = function()
 
-
-
 </script>
 
-</head>
-<body>
-
-    <p>Volume</p>
-    <input id="volume" type="range" min="0" max="1" step="0.1" value="0.5"/>
-
-</body>
-</html>
+</head><body></body></html>
