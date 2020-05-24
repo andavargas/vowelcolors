@@ -13,24 +13,45 @@
 
     var audioInput = null,
         microphone_stream = null,
-        gain_node = null,
         script_processor_node = null,
         script_processor_fft_node = null,
         analyserNode = null;
+        mixBut = null;
+        change_background = null;
+        stop_background = function() {}
+
+	window.onload = function() {
+		mixBut = document.getElementById("mixBut");
+	  	mixBut.addEventListener("click", Stop);
+	    function Stop() {
+		    console.log("Stopped");
+		    mixBut.removeEventListener("click", Stop);
+		    mixBut.addEventListener("click", Start);
+		    mixBut.value = "Start";
+		    script_processor_fft_node.onaudioprocess = stop_background
+		}
+		function Start() {
+		    console.log("Started");
+		    mixBut.removeEventListener("click", Start);
+		    mixBut.addEventListener("click", Stop);
+		    mixBut.value = "Stop";
+            script_processor_fft_node.onaudioprocess = change_background;
+		}
+	}
 
     if (!navigator.getUserMedia)
             navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia ||
                           navigator.mozGetUserMedia || navigator.msGetUserMedia;
 
-    if (navigator.getUserMedia){
+    if (navigator.getUserMedia) {
 
         navigator.getUserMedia({audio:true}, 
-          function(stream) {
-              start_microphone(stream);
-          },
-          function(e) {
-            alert('Error capturing audio.');
-          }
+        	function(stream) {
+                start_microphone(stream);
+            },
+            function(e) {
+            	alert('Error capturing audio.');
+            }
         );
 
     } else { alert('getUserMedia not supported in this browser.'); }
@@ -51,24 +72,37 @@
         }
     }
 
+    function show_fft(array) {
+
+        var size_buffer = array.length;
+        var index = 0;
+
+        console.log("----------");
+
+        for (; index < size_buffer; index += 1) {
+
+            console.log(index + " " + array[index]);
+        }
+    }
+
     function start_microphone(stream){
 
       microphone_stream = audioContext.createMediaStreamSource(stream);
 
       // --- setup FFT
 
-      buff_size = 16384
+      buff_size = 4096
       script_processor_fft_node = audioContext.createScriptProcessor(buff_size, 1, 1);
 
       analyserNode = audioContext.createAnalyser();
-      analyserNode.smoothingTimeConstant = 0.5;
-      analyserNode.fftSize = 32;
+      analyserNode.smoothingTimeConstant = 0.1;
+      analyserNode.fftSize = 64;
 
       microphone_stream.connect(analyserNode);
 
       analyserNode.connect(script_processor_fft_node);
 
-      script_processor_fft_node.onaudioprocess = function() {
+      change_background = function() {
 
         // get the average for the first channel
         var array = new Uint8Array(analyserNode.frequencyBinCount);
@@ -77,16 +111,20 @@
         // draw the spectrogram
         if (microphone_stream.playbackState == microphone_stream.PLAYING_STATE) {
 
-            show_some_data(array, 5, "from fft");
-            console.log(array);
+            show_fft(array);
+
         }
 
-        r = ("00" + array[0]).substr(-2,2);
-        g = ("00" + array[1]).substr(-2,2);
-        b = ("00" + array[2]).substr(-2,2);
+        //r = (255).toString(16)
+        r = ("00" + array[1].toString(16)).substr(-2,2);
+        g = ("00" + array[2].toString(16)).substr(-2,2);
+        b = ("00" + array[3].toString(16)).substr(-2,2);
 
         document.body.style.background = "#" + r + g + b;
+
       };
+
+      script_processor_fft_node.onaudioprocess = change_background
 
     }
 
@@ -94,4 +132,8 @@
 
 </script>
 
-</head><body></body></html>
+</head>
+<body>
+    <input type="Button" id="mixBut" value="Stop" />	
+</body>
+</html>
