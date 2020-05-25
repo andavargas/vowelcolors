@@ -15,6 +15,7 @@
 			show_spectrogram = false;
 			got_vowels = false;
 			seconds_played = 0;
+			vowels_interval = null;
 			u_array = null;
 			a_array = null;
 			i_array = null;
@@ -71,8 +72,6 @@
 			spectrogramCheck.addEventListener("change", function(){show_spectrogram = !show_spectrogram});
 		}
 
-		var get_vowels_interval = window.setInterval(get_vowels, 1000)
-
 		function get_vowels() {
 			document.getElementById("get_vowels").innerHTML = prompts[seconds_played];
 
@@ -86,8 +85,9 @@
 
 			seconds_played += 1;
 			if (seconds_played == prompts.length) {
-				window.clearInterval(get_vowels_interval);
+				window.clearInterval(vowels_interval);
 				got_vowels = true;
+				console.log("recorded reference spectra for /u/, /a/, and /i/");
 			}
 		}
 
@@ -113,7 +113,10 @@
 
 		if (navigator.getUserMedia) {
 			navigator.getUserMedia({audio:true}, 
-				function(stream) {start_microphone(stream)},
+				function(stream) {
+					start_microphone(stream);
+					vowels_interval = window.setInterval(get_vowels, 1000);
+				},
 				function(e) {alert('Error capturing audio.')}
 			);
 		} else {
@@ -188,9 +191,9 @@
 				// Note: colors below 0 and above 255 get clipped
 				// In ordinary usage, white noise will look light blue because /u/ /a/ and /i/ are not orthogonal
 
-				rgb_values += "<tr>" + left + "r</span></td>" + right + bg_color[1] + "</span></td></tr>";
-				rgb_values += "<tr>" + left + "g</span></td>" + right + bg_color[2] + "</span></td></tr>";
-				rgb_values += "<tr>" + left + "b</span></td>" + right + bg_color[3] + "</span></td></tr>";
+				rgb_values += "<tr>" + left + "R</span></td>" + right + bg_color[1] + "</span></td></tr>";
+				rgb_values += "<tr>" + left + "G</span></td>" + right + bg_color[2] + "</span></td></tr>";
+				rgb_values += "<tr>" + left + "B</span></td>" + right + bg_color[3] + "</span></td></tr>";
 
 				if (show_rgb_values && show_spectrogram) {
 					document.getElementById("details").innerHTML = table_top + rgb_values + spectrogram + "</table>";
