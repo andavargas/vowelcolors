@@ -5,21 +5,16 @@
 
 	var webaudio_tooling_obj = function () {
 
-		var audioContext = new AudioContext();
-		console.log("audio is starting up ...");
-
 		var mixBut = null;
 			rgbCheck = null;
 			spectrogramCheck = null;
-			show_rgb_values = false;
-			show_spectrogram = false;
 			got_vowels = false;
 			seconds_played = 0;
 			vowels_interval = null;
 			u_array = null;
 			a_array = null;
 			i_array = null;
-			silence_array = null
+			silence_array = null;
 			prompts = [
 				"say \"uuuu\"<br /><span style=\"color: #ff5555;\">\u2022\u2022\u2022</span",
 				"say \"uuuu\"<br /><span style=\"color: #ff5555;\">\u2022\u2022</span",
@@ -39,42 +34,81 @@
 				"say nothing<br /><span style=\"color: #ffffff;\">\u2713</span",
 				""];
 
-		var audioInput = null,
+		var audioContext = null;
+			audioInput = null,
 			microphone_stream = null,
-			script_processor_node = null,
 			script_processor_fft_node = null,
 			analyserNode = null;
 			sg_array = null;
 			sample_rate = 44100;
 			frequency_limit = 6000;
-			change_background = null;
-			pause_background = function(){}
+			do_processing = null;
+			pause_processing = function(){}
 
 		window.onload = function() {
+
 			mixBut = document.getElementById("mixBut");
-			mixBut.addEventListener("click", Pause);
-			function Pause() {
-				console.log("Paused");
-				mixBut.removeEventListener("click", Pause);
-				mixBut.addEventListener("click", Start);
-				mixBut.value = "Start";
-				script_processor_fft_node.onaudioprocess = pause_background;
-			}
+			mixBut.addEventListener("click", Start);
+
 			function Start() {
 				console.log("Started");
+				console.log("audio is starting up ...");
+
+				function successCallback(stream) {
+					start_audiocontext(); // must start context before handling stream
+					start_microphone(stream);
+					script_processor_fft_node.onaudioprocess = do_processing;
+					vowels_interval = window.setInterval(get_vowels, 1000);
+				}
+				function errorCallback(error) {
+					console.log("navigator.getUserMedia error: ", error);
+				}
+				navigator.mediaDevices.getUserMedia({audio: true, video: false})
+					.then(successCallback)
+					.catch(errorCallback);
+
 				mixBut.removeEventListener("click", Start);
 				mixBut.addEventListener("click", Pause);
 				mixBut.value = "Pause";
-				script_processor_fft_node.onaudioprocess = change_background;
+			}
+			function Unpause() {
+				console.log("Unpaused");
+				if (!got_vowels) {
+					vowels_interval = window.setInterval(get_vowels, 1000);
+				}
+				mixBut.removeEventListener("click", Unpause);
+				mixBut.addEventListener("click", Pause);
+				mixBut.value = "Pause";
+				script_processor_fft_node.onaudioprocess = do_processing;
+			}
+			function Pause() {
+				console.log("Paused");
+				if (!got_vowels) {window.clearInterval(vowels_interval)} 
+				mixBut.removeEventListener("click", Pause);
+				mixBut.addEventListener("click", Unpause);
+				mixBut.value = "Unpause";
+				script_processor_fft_node.onaudioprocess = pause_processing;
+				first_click = false;
 			}
 
 			rgbCheck = document.getElementById("show_rgb_values");
 			rgbCheck.checked = false;
-			rgbCheck.addEventListener("change", function(){show_rgb_values = !show_rgb_values});
+			rgbCheck.addEventListener("change", toggle_element_display("rgb"));
 
 			spectrogramCheck = document.getElementById("show_spectrogram");
 			spectrogramCheck.checked = false;
-			spectrogramCheck.addEventListener("change", function(){show_spectrogram = !show_spectrogram});
+			spectrogramCheck.addEventListener("change", toggle_element_display("spectrogram"));
+		}
+
+		function toggle_element_display(id) {
+			return function() {
+				if (document.getElementById(id).style.display == "none") {
+					document.getElementById(id).style.display = "block";
+				} else {
+					document.getElementById(id).style.display = "none";
+				}
+				console.log("Toggled " + id);
+			}
 		}
 
 		function get_vowels() {
@@ -103,7 +137,7 @@
 		}
 
 		function subtract_array(a, b) {
-			for (i=0; i<a.length; i+=1) a[i] = a[i] -b[i];
+			for (i=0; i<a.length; i+=1) a[i] = Math.log(Math.exp(a[i]) - Math.exp(b[i])); // use log space
 		}
 
 		function dot(a, b) {
@@ -122,22 +156,6 @@
 			return normalized;
 		}
 
-		if (!navigator.getUserMedia) {
-			navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
-		}
-
-		if (navigator.getUserMedia) {
-			navigator.getUserMedia({audio:true}, 
-				function(stream) {
-					start_microphone(stream);
-					vowels_interval = window.setInterval(get_vowels, 1000);
-				},
-				function(e) {alert('Error capturing audio.')}
-			);
-		} else {
-			alert('getUserMedia not supported in this browser.');
-		}
-
 		function rgb(r, g, b, gray_center){
 			if (gray_center) {
 				r2 = 127 + r/2 - g/4 - b/4
@@ -153,88 +171,82 @@
 			return [["rgb(",r,",",g,",",b,")"].join(""), r, g, b];
 		}
 
-		function start_microphone(stream){
-
-			microphone_stream = audioContext.createMediaStreamSource(stream);
+		function start_audiocontext(){
+			window.AudioContext = window.AudioContext || window.webkitAudioContext
+			audioContext = new AudioContext();
 
 			buff_size = 4096; // increasing this increases relaxation time
 			script_processor_fft_node = audioContext.createScriptProcessor(buff_size, 1, 1);
+			script_processor_fft_node.connect(audioContext.destination);
 
 			analyserNode = audioContext.createAnalyser();
 			analyserNode.smoothingTimeConstant = .7; // increasing this increases relaxation time
 			analyserNode.fftSize = Math.pow(2,10); // increasing the power saturates the color (~bug)
-
-			microphone_stream.connect(analyserNode);
 			analyserNode.connect(script_processor_fft_node);
-
-			change_background = function() {
-				// get the average for the first channel
-				sg_array = new Uint8Array(analyserNode.frequencyBinCount); // length is half of fftSize
-				analyserNode.getByteFrequencyData(sg_array);
-
-				u = null
-				a = null
-				i = null
-
-				table_top = "<table style=\"color: white; font-size: 10; font-family: arial; border-spacing: 0;\">";
-				rgb_values = "";
-				spectrogram = "";
-				left = "<td style=\"text-align: right; padding: 0;\"><span style=\"background: rgba(127, 127, 127, 0.1);\">";
-				right = "<td style=\"padding: 0 0 0 5;\"><span style=\"background: rgba(127, 127, 127, 0.1);\">";
-				for (j=0; j<sg_array.length; j+=1) {
-					hz = Math.floor(j/analyserNode.fftSize * sample_rate);
-					if (hz > frequency_limit) break;
-					if (hz > 250 && u == null)
-						u = sg_array[j];
-					if (hz > 700 && a == null)
-						a = sg_array[j];
-					if (hz > 2300 && i == null)
-						i = sg_array[j];
-
-					spectrogram += "<tr>" + left + hz + " Hz</span></td>" + right + "\u2022".repeat(sg_array[j]/1.5) + "</span></td></tr>";
-				}
-
-				// change the background color
-				if (got_vowels) {
-					subtract_array(sg_array, silence_array);
-					u = dot(normalize(u_array), sg_array);
-					a = dot(normalize(a_array), sg_array);
-					i = dot(normalize(i_array), sg_array);
-				}
-
-				bg_color = rgb(u,a,i,true);
-				document.body.style.background = bg_color[0];
-				// Note: colors below 0 and above 255 get clipped
-				// In ordinary usage, white noise will look light blue because /u/ /a/ and /i/ are not orthogonal
-
-				rgb_values += "<tr>" + left + "R</span></td>" + right + bg_color[1] + "</span></td></tr>";
-				rgb_values += "<tr>" + left + "G</span></td>" + right + bg_color[2] + "</span></td></tr>";
-				rgb_values += "<tr>" + left + "B</span></td>" + right + bg_color[3] + "</span></td></tr>";
-
-				if (show_rgb_values && show_spectrogram) {
-					document.getElementById("details").innerHTML = table_top + rgb_values + spectrogram + "</table>";
-				} else if (show_rgb_values) {
-					document.getElementById("details").innerHTML = table_top + rgb_values + "</table>";
-				} else if (show_spectrogram) {
-					document.getElementById("details").innerHTML = table_top + spectrogram + "</table>";
-				} else {
-					document.getElementById("details").innerHTML = "";
-				}
-			};
-
-			script_processor_fft_node.onaudioprocess = change_background
 		}
+
+		function start_microphone(stream){
+			microphone_stream = audioContext.createMediaStreamSource(stream);
+			microphone_stream.connect(analyserNode);
+		}
+
+		do_processing = function() {
+			// get the average for the first channel
+			sg_array = new Uint8Array(analyserNode.frequencyBinCount); // length is half of fftSize
+			analyserNode.getByteFrequencyData(sg_array);
+
+			u = null
+			a = null
+			i = null
+
+			table_top = "<table style=\"color: white; font-size: 10; font-family: arial; border-spacing: 0;\">";
+			rgb_values = "";
+			spectrogram = "";
+			left = "<td style=\"text-align: right; padding: 0;\"><span style=\"background: rgba(127, 127, 127, 0.1);\">";
+			right = "<td style=\"padding: 0 0 0 5;\"><span style=\"background: rgba(127, 127, 127, 0.1);\">";
+
+			for (j=0; j<sg_array.length; j+=1) {
+				hz = Math.floor(j/analyserNode.fftSize * sample_rate);
+				if (hz > frequency_limit) break;
+				if (hz > 250 && u == null) u = sg_array[j];
+				if (hz > 700 && a == null) a = sg_array[j];
+				if (hz > 2300 && i == null) i = sg_array[j];
+
+				spectrogram += "<tr>" + left + hz + " Hz</span></td>" + right + "\u2022".repeat(sg_array[j]/1.5) + "</span></td></tr>";
+			}
+
+			// change the background color
+			if (got_vowels) {
+				subtract_array(sg_array, silence_array);
+				u = dot(normalize(u_array), sg_array);
+				a = dot(normalize(a_array), sg_array);
+				i = dot(normalize(i_array), sg_array);
+			}
+
+			bg_color = rgb(u,a,i,true);
+			document.body.style.background = bg_color[0];
+			// Note: colors below 0 and above 255 get clipped
+			// In ordinary usage, white noise will look light blue because /u/ /a/ and /i/ are not orthogonal
+
+			rgb_values += "<tr>" + left + "R</span></td>" + right + bg_color[1] + "</span></td></tr>";
+			rgb_values += "<tr>" + left + "G</span></td>" + right + bg_color[2] + "</span></td></tr>";
+			rgb_values += "<tr>" + left + "B</span></td>" + right + bg_color[3] + "</span></td></tr>";
+
+			document.getElementById("rgb").innerHTML = "<p></p>" + table_top + rgb_values + "</table>";
+			document.getElementById("spectrogram").innerHTML = "<p></p>" + table_top + spectrogram + "</table>";
+		};
+
 	}(); // webaudio_tooling_obj = function()
 
 </script>
 
 </head>
-<body>
-	<input type="Button" id="mixBut" value="Pause" /><br />
+<body style="background-color: rgb(127, 127, 127)">
+	<input type="Button" id="mixBut" value="Record Your Vowels" style="font-size: 12;"/><br />
 	<input type="checkbox" id="show_rgb_values"/><span style="color: white; font-family: arial; color: white; font-size: 12;">Show RGB</span><br />
 	<input type="checkbox" id="show_spectrogram"/><span style="color: white; font-family: arial; color: white; font-size: 12;">Show spectrogram</span><br />
-	<p></p>
-	<div id="details"></div>
+	<div id="rgb" style="display: none;"></div>
+	<div id="spectrogram" style="display: none;"></div>
 	<div id="get_vowels" style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); -ms-transform: translate(-50%, -50%); -webkit-transform: translate(-50%, -50%); font-family: arial; font-size: 48; color: white; text-align: center;"></div>
 </body>
 </html>
