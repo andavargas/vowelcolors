@@ -35,15 +35,15 @@
 				""];
 
 		var audioContext = null;
-			audioInput = null,
-			microphone_stream = null,
-			script_processor_fft_node = null,
+			audioInput = null;
+			microphone_stream = null;
+			script_processor_fft_node = null;
 			analyserNode = null;
 			sg_array = null;
 			sample_rate = 44100;
 			frequency_limit = 6000;
 			do_processing = null;
-			pause_processing = function(){}
+			pause_processing = function(){};
 
 		window.onload = function() {
 
@@ -55,7 +55,6 @@
 				console.log("audio is starting up ...");
 
 				function successCallback(stream) {
-					start_audiocontext(); // must start context before handling stream
 					start_microphone(stream);
 					script_processor_fft_node.onaudioprocess = do_processing;
 					vowels_interval = window.setInterval(get_vowels, 1000);
@@ -83,7 +82,7 @@
 			}
 			function Pause() {
 				console.log("Paused");
-				if (!got_vowels) {window.clearInterval(vowels_interval)} 
+				if (!got_vowels) window.clearInterval(vowels_interval);
 				mixBut.removeEventListener("click", Pause);
 				mixBut.addEventListener("click", Unpause);
 				mixBut.value = "Unpause";
@@ -98,7 +97,7 @@
 			spectrogramCheck = document.getElementById("show_spectrogram");
 			spectrogramCheck.checked = false;
 			spectrogramCheck.addEventListener("change", toggle_element_display("spectrogram"));
-		}
+		};
 
 		function toggle_element_display(id) {
 			return function() {
@@ -158,12 +157,12 @@
 
 		function rgb(r, g, b, gray_center){
 			if (gray_center) {
-				r2 = 127 + r/2 - g/4 - b/4
-				g2 = 127 - r/4 + g/2 - b/4
-				b2 = 127 - r/4 - g/4 + b/2
-				r = r2
-				g = g2
-				b = b2
+				r2 = 127 + r/2 - g/4 - b/4;
+				g2 = 127 - r/4 + g/2 - b/4;
+				b2 = 127 - r/4 - g/4 + b/2;
+				r = r2;
+				g = g2;
+				b = b2;
 			}
 			r = Math.floor(r);
 			g = Math.floor(g);
@@ -171,7 +170,7 @@
 			return [["rgb(",r,",",g,",",b,")"].join(""), r, g, b];
 		}
 
-		function start_audiocontext(){
+		function start_microphone(stream){
 			window.AudioContext = window.AudioContext || window.webkitAudioContext
 			audioContext = new AudioContext();
 
@@ -183,9 +182,7 @@
 			analyserNode.smoothingTimeConstant = .7; // increasing this increases relaxation time
 			analyserNode.fftSize = Math.pow(2,10); // increasing the power saturates the color (~bug)
 			analyserNode.connect(script_processor_fft_node);
-		}
 
-		function start_microphone(stream){
 			microphone_stream = audioContext.createMediaStreamSource(stream);
 			microphone_stream.connect(analyserNode);
 		}
@@ -195,9 +192,9 @@
 			sg_array = new Uint8Array(analyserNode.frequencyBinCount); // length is half of fftSize
 			analyserNode.getByteFrequencyData(sg_array);
 
-			u = null
-			a = null
-			i = null
+			u = null;
+			a = null;
+			i = null;
 
 			table_top = "<table style=\"color: white; font-size: 10; font-family: arial; border-spacing: 0;\">";
 			rgb_values = "";
