@@ -39,7 +39,7 @@
 				function successCallback(stream) {
 					start_microphone(stream);
 					script_processor_fft_node.onaudioprocess = do_processing;
-					make_prompts([["\"uuuu\"", "ff5555"], ["\"aahh\"", "55ff55"], ["\"eeee\"", "5555ff"], ["nothing", "ffffff"]]);
+					make_prompts([["\"uuuu\"", "f55"], ["\"aahh\"", "5f5"], ["\"eeee\"", "55f"], ["nothing", "fff"]]);
 					vowels_interval = window.setInterval(get_vowels, 1000);
 				}
 				function errorCallback(error) {
