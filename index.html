@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What color are your vowels?</title>
+    <style>
+        body {
+            background-color: rgb(127, 127, 127);
+        }
+        .show_checkbox {
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+        }
+        .hidden {
+            display: none;
+        }
+        #get_vowels {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            font-family: Arial, sans-serif;
+            font-size: 48px;
+            color: white;
+            text-align: center;
+        }
+        .number-table {
+            color: white;
+            font-size: 10px;
+            font-family: Arial, sans-serif;
+            border-spacing: 0px;
+            margin-top: 5px;
+        }
+        .left-td {
+            text-align: right;
+            padding: 0px;
+        }
+        .right-td {
+            padding-left: 5px;
+        }
+    </style>
+</head>
+
+<body>
+	<div><input type="Button" id="calibrate_btn" value="Calibrate Your Vowels"></div>
+    <div class="show_checkbox"><label><input type="checkbox" id="show_rgb_values">RGB</label></div>
+    <div class="show_checkbox"><label><input type="checkbox" id="show_spectrogram">Spectrogram</label></div>
+	<div id="rgb" class="hidden"></div>
+	<div id="spectrogram" class="hidden"></div>
+    <div id="get_vowels"></div>
+
+    <script>
+        class VowelColorAnalyzer {
+            constructor() {
+                this.is_paused = false;
+                this.prompt_duration = 1000;
+                this.update_duration = 100;
+                this.interval_get_vowels = null;
+                [this.prompts, this.n_indicators] = this.make_calibration_prompts();
+                this.prompts_played = 0;
+                this.got_vowels = false;
+                this.sg_scale = 0.7;
+
+                this.audio_context = null;
+                this.analyser_node = null;
+                this.smoothingTimeConstant = 0.5; // increasing this increases relaxation time
+                this.fftSize = Math.pow(2, 10); // increasing the power saturates the color (~bug)
+                this.frequency_display_limit = 6000;
+                this.microphone_stream = null;
+                this.hz_increment = null;
+
+                this.u_hz = 250;
+                this.a_hz = 700;
+                this.i_hz = 2300;
+
+                this.u_sg = null;
+                this.a_sg = null;
+                this.i_sg = null;
+                this.silence_sg = null;
+                this.u_sg_sn = null;
+                this.a_sg_sn = null;
+                this.i_sg_sn = null;
+                this.live_sg = null;
+                this.live_sg_sn = null;
+
+                this.calibrate_btn = document.getElementById('calibrate_btn');
+                this.start_calibration = this.start_calibration.bind(this);
+                this.calibrate_btn.addEventListener("click", this.start_calibration);
+                this.rgb_check = document.getElementById("show_rgb_values");
+                this.rgb_check.addEventListener("change", () => this.toggle_element_display("rgb"));
+                this.spectrogram_check = document.getElementById("show_spectrogram");
+                this.spectrogram_check.addEventListener("change", () => this.toggle_element_display("spectrogram"));
+            }
+
+            make_calibration_prompts() {
+                const sounds = ["\"uuuu\"", "\"aahh\"", "\"eeee\"", "nothing"];
+                const colors = ["f55", "5f5", "55f", "fff"];
+                const indicators = ["•••", "••", "•", "✓"];
+
+                const prompts = sounds.flatMap((sound, i) => {
+                    const lead = `<div>say ${sound}</div><div style="color: #${colors[i]};">`;
+                    return indicators.map(ind => `${lead}${ind}</div>`);
+                });
+                prompts.push(""); // clear when done
+                return [prompts, indicators.length];
+            }
+
+            async start_calibration() {
+                console.log("Starting calibration...");
+                this.calibrate_btn.disabled = true;
+
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    this.start_microphone(stream);
+                    this.start_audio_processing();
+                    this.interval_get_vowels = window.setInterval(() => this.get_vowels(), this.prompt_duration);
+
+                    this.calibrate_btn.removeEventListener("click", this.start_calibration);
+                    this.toggle_pause = this.toggle_pause.bind(this);
+                    this.calibrate_btn.addEventListener("click", this.toggle_pause);
+                    this.calibrate_btn.value = "Pause";
+                } catch (error) {
+                    console.error("navigator.getUserMedia error: ", error);
+                } finally {
+                    this.calibrate_btn.disabled = false;
+                }
+            }
+
+            start_microphone(stream) {
+                this.audio_context = new AudioContext();
+                this.analyser_node = this.audio_context.createAnalyser();
+                this.analyser_node.smoothingTimeConstant = this.smoothingTimeConstant; 
+                this.analyser_node.fftSize = this.fftSize;
+                this.microphone_stream = this.audio_context.createMediaStreamSource(stream);
+                this.microphone_stream.connect(this.analyser_node);
+            }
+
+            start_audio_processing() {
+                const processAudio = () => {
+                    this.map_rgb();
+                    if (!this.is_paused) {
+                        setTimeout(() => {
+                            requestAnimationFrame(processAudio);
+                        }, this.update_duration);
+                    }
+                };
+                requestAnimationFrame(processAudio);
+            }
+
+            map_rgb() {
+                // initialize stuff
+                let r, g, b;
+                let spectrogram_trs = "";
+                let rgb_trs = "";
+
+                const table_open = "<table class='number-table'>";
+                const table_close = "</table>";
+                const l_td = "<tr><td class='left-td'><span>";
+                const r_td = "</span></td><td class='right-td'><span>";
+                const close_td = "</span></td></tr>"
+                const RGBs = ["R", "G", "B"];
+
+                if (!this.live_sg) this.live_sg = new Uint8Array(this.analyser_node.frequencyBinCount);
+                this.analyser_node.getByteFrequencyData(this.live_sg);
+
+                // populate spectrogram table and get temporary single-frequency vowels
+                this.hz_increment = this.audio_context.sampleRate / this.analyser_node.fftSize;
+                for (let j = 0; j < this.live_sg.length; j += 1) {
+                    const hz = Math.floor(j * this.hz_increment);
+                    if (hz > this.frequency_display_limit) break;
+                    spectrogram_trs += l_td + hz + "Hz" + r_td + "•".repeat(this.live_sg[j] * this.sg_scale) + close_td;
+                }
+                document.getElementById("spectrogram").innerHTML = table_open + spectrogram_trs + table_close;
+
+                // get rgb from spectrograms
+                if (!this.got_vowels) {
+                    [r, g, b] = this.map_sg_to_rgb();
+                } else {
+                    this.live_sg_sn = this.subtract_and_normalize(this.live_sg, this.silence_sg);
+                    [r, g, b] = this.map_sgs_to_rgb();
+                }
+
+                // set colors (note: colors below 0 and above 255 get clipped)
+                for (let i = 0; i < RGBs.length; i += 1) {
+                    rgb_trs += l_td + `${RGBs[i]}` + r_td + [r, g, b][i] + close_td;
+                }
+                document.getElementById("rgb").innerHTML = table_open + rgb_trs + table_close;
+                document.body.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+            }
+            
+            map_sg_to_rgb() {
+                const u = this.live_sg[Math.ceil(this.u_hz / this.hz_increment)];
+                const a = this.live_sg[Math.ceil(this.a_hz / this.hz_increment)];
+                const i = this.live_sg[Math.ceil(this.i_hz / this.hz_increment)];
+                return this.map_numbers_to_rgb(u, a, i);
+            }
+
+            map_sgs_to_rgb() {
+                const u = this.dot(this.u_sg_sn, this.live_sg_sn) * 255;
+                const a = this.dot(this.a_sg_sn, this.live_sg_sn) * 255;
+                const i = this.dot(this.i_sg_sn, this.live_sg_sn) * 255;
+                return this.map_numbers_to_rgb(u, a, i);
+            }
+
+            map_numbers_to_rgb(u, a, i) {
+                const r = Math.floor(127 + (0 + u/2 - a/4 - i/4));
+                const g = Math.floor(127 + (0 - u/4 + a/2 - i/4));
+                const b = Math.floor(127 + (0 - u/4 - a/4 + i/2));
+                return [r, g, b];
+            }
+
+            subtract_and_normalize(a, b) {
+                let s = new Array(a.length).fill(0);
+                for (let i = 0; i < a.length; i += 1) s[i] = a[i] - b[i];
+
+                let norm_s = 0;
+                for (let i = 0; i < s.length; i += 1) norm_s += s[i] * s[i];
+                norm_s = Math.sqrt(norm_s);
+                return s.map(el => el / norm_s);
+            }
+
+            dot(a, b) {
+                let product = 0;
+                for (let i = 0; i < a.length; i += 1) product += a[i] * b[i];
+                return product;
+            }
+
+            get_vowels() {
+                document.getElementById("get_vowels").innerHTML = this.prompts[this.prompts_played];
+
+                if (this.prompts_played === (this.n_indicators * 1 - 1)) {
+                    this.u_sg = [...this.live_sg];
+                } else if (this.prompts_played === (this.n_indicators * 2 - 1)) {
+                    this.a_sg = [...this.live_sg];
+                } else if (this.prompts_played === (this.n_indicators * 3 - 1)) {
+                    this.i_sg = [...this.live_sg];
+                } else if (this.prompts_played === (this.n_indicators * 4 - 1)) {
+                    this.silence_sg = [...this.live_sg];
+                }
+
+                this.prompts_played += 1;
+                if (this.prompts_played === this.prompts.length) {
+                    window.clearInterval(this.interval_get_vowels);
+                    this.got_vowels = true;
+                    console.log("Calibration finished. Recorded reference spectra for /u/, /a/, and /i/");
+
+                    this.u_sg_sn = this.subtract_and_normalize(this.u_sg, this.silence_sg);
+                    this.a_sg_sn = this.subtract_and_normalize(this.a_sg, this.silence_sg);
+                    this.i_sg_sn = this.subtract_and_normalize(this.i_sg, this.silence_sg);
+                }
+            }
+
+            toggle_pause() {
+                if (this.is_paused) {
+                    console.log("Unpaused");
+                    if (!this.got_vowels) {
+                        this.interval_get_vowels = window.setInterval(() => this.get_vowels(), this.prompt_duration);
+                    }
+                    this.calibrate_btn.value = "Pause";
+                    this.start_audio_processing();
+                } else {
+                    console.log("Paused");
+                    if (!this.got_vowels) window.clearInterval(this.interval_get_vowels);
+                    this.calibrate_btn.value = "Unpause";
+                }
+                this.is_paused = !this.is_paused;
+            }
+
+            toggle_element_display(id) {
+                document.getElementById(id).classList.toggle('hidden')
+                console.log("Toggled " + id);
+            }
+        }
+
+        window.vowelAnalyzer = new VowelColorAnalyzer();
+    </script>
+</body>
+</html>
